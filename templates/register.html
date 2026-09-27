@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Register &mdash; HeatGuard{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-7">
+    <div class="card">
+      <div class="card-body">
+        <h4 class="card-title mb-3">Create an account</h4>
+        <form method="post">
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Username</label>
+              <input class="form-control" name="username" required>
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Password</label>
+              <input class="form-control" type="password" name="password" required>
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Full name</label>
+              <input class="form-control" name="full_name" required>
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Email</label>
+              <input class="form-control" type="email" name="email">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Role</label>
+            <select class="form-select" name="role" id="role" required>
+              <option value="Citizen">Citizen</option>
+              <option value="Officer">Officer</option>
+              <option value="Administrator">Administrator</option>
+            </select>
+          </div>
+
+          <!-- Citizen-only fields -->
+          <div id="citizen-fields">
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Region</label>
+                <select class="form-select" name="region_id">
+                  <option value="">-- select region --</option>
+                  {% for r in regions %}
+                  <option value="{{ r.region_id }}">{{ r.name }} ({{ r.state }})</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Phone</label>
+                <input class="form-control" name="phone">
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Address</label>
+              <input class="form-control" name="address">
+            </div>
+          </div>
+
+          <!-- Officer-only fields -->
+          <div id="officer-fields" style="display:none;">
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Department</label>
+                <select class="form-select" name="dept_id">
+                  <option value="">-- select department --</option>
+                  {% for d in departments %}
+                  <option value="{{ d.dept_id }}">{{ d.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-6 mb-3">
+                <label class="form-label">Designation</label>
+                <input class="form-control" name="designation" value="Field Officer">
+              </div>
+            </div>
+          </div>
+
+          <!-- Administrator-only fields -->
+          <div id="admin-fields" style="display:none;">
+            <div class="mb-3">
+              <label class="form-label">Office</label>
+              <input class="form-control" name="office" value="Head Office">
+            </div>
+          </div>
+
+          <button class="btn btn-primary w-100">Register</button>
+        </form>
+        <p class="mt-3 mb-0 small text-muted">Already registered?
+          <a href="{{ url_for('login') }}">Login</a>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const role = document.getElementById('role');
+  function toggleFields() {
+    document.getElementById('citizen-fields').style.display = role.value === 'Citizen' ? 'block' : 'none';
+    document.getElementById('officer-fields').style.display = role.value === 'Officer' ? 'block' : 'none';
+    document.getElementById('admin-fields').style.display  = role.value === 'Administrator' ? 'block' : 'none';
+  }
+  role.addEventListener('change', toggleFields);
+  toggleFields();
+</script>
+{% endblock %}

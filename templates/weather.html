@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Weather Monitoring{% endblock %}
+{% block content %}
+<h3 class="mb-3">Weather Monitoring</h3>
+
+{% if can_edit %}
+<div class="row g-3 mb-4">
+  <div class="col-md-5">
+    <div class="card"><div class="card-body">
+      <h6 class="card-title">Add Weather Station</h6>
+      <form method="post" action="{{ url_for('add_station') }}">
+        <div class="mb-2">
+          <select class="form-select form-select-sm" name="region_id" required>
+            <option value="">-- region --</option>
+            {% for r in regions %}<option value="{{ r.region_id }}">{{ r.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="mb-2"><input class="form-control form-control-sm" name="name" placeholder="Station name" required></div>
+        <div class="row g-2 mb-2">
+          <div class="col"><input class="form-control form-control-sm" name="latitude" placeholder="Latitude"></div>
+          <div class="col"><input class="form-control form-control-sm" name="longitude" placeholder="Longitude"></div>
+        </div>
+        <button class="btn btn-sm btn-primary">Add Station</button>
+      </form>
+    </div></div>
+  </div>
+
+  <div class="col-md-7">
+    <div class="card"><div class="card-body">
+      <h6 class="card-title">Record Weather Observation</h6>
+      <form method="post" action="{{ url_for('add_observation') }}">
+        <div class="mb-2">
+          <select class="form-select form-select-sm" name="station_id" required>
+            <option value="">-- station --</option>
+            {% for s in stations %}
+            <option value="{{ s.station_id }}">{{ s.name }} ({{ s.region_name }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col"><input class="form-control form-control-sm" type="number" step="0.1" name="temperature" placeholder="Temp °C" required></div>
+          <div class="col"><input class="form-control form-control-sm" type="number" step="0.1" name="humidity" placeholder="Humidity %" required></div>
+          <div class="col"><input class="form-control form-control-sm" type="number" step="0.1" name="wind_speed" placeholder="Wind km/h" required></div>
+        </div>
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" name="run_prediction" id="runpred" checked>
+          <label class="form-check-label small" for="runpred">
+            Run rule-based prediction on save (auto-generates alerts for High/Extreme)
+          </label>
+        </div>
+        <button class="btn btn-sm btn-primary">Record Observation</button>
+      </form>
+    </div></div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h5 class="card-title">Weather Stations</h5>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>ID</th><th>Name</th><th>Region</th><th>Lat</th><th>Lon</th><th>Installed</th>
+          {% if current_user.role == 'Administrator' %}<th></th>{% endif %}</tr></thead>
+        <tbody>
+          {% for s in stations %}
+          <tr>
+            <td>{{ s.station_id }}</td><td>{{ s.name }}</td><td>{{ s.region_name }}</td>
+            <td>{{ s.latitude }}</td><td>{{ s.longitude }}</td><td class="small">{{ s.installed_on }}</td>
+            {% if current_user.role == 'Administrator' %}
+            <td>
+              <form method="post" action="{{ url_for('delete_station', station_id=s.station_id) }}"
+                    onsubmit="return confirm('Delete this station and its observations?');">
+                <button class="btn btn-sm btn-outline-danger">Delete</button>
+              </form>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <h5 class="card-title">Recent Observations</h5>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>Region</th><th>Station</th><th>Temp °C</th><th>Humidity %</th>
+          <th>Wind km/h</th><th>Observed at</th></tr></thead>
+        <tbody>
+          {% for o in observations %}
+          <tr>
+            <td>{{ o.region_name }}</td><td>{{ o.station_name }}</td>
+            <td>{{ o.temperature }}</td><td>{{ o.humidity }}</td>
+            <td>{{ o.wind_speed }}</td><td class="small text-muted">{{ o.observed_at }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-muted">No observations yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Heatwave Predictions{% endblock %}
+{% block content %}
+<h3 class="mb-1">AI Heatwave Predictions</h3>
+<p class="text-muted small">
+  Severity is classified by a <strong>rule-based expert system</strong> (threshold rules on the
+  latest observation) &mdash; not a machine-learning model.
+</p>
+
+{% if can_run %}
+<div class="card mb-3">
+  <div class="card-body">
+    <h6 class="card-title">Run prediction for a region</h6>
+    <form method="post" action="{{ url_for('run_prediction') }}" class="row g-2">
+      <div class="col-auto">
+        <select class="form-select form-select-sm" name="region_id" required>
+          <option value="">-- region --</option>
+          {% for r in regions %}<option value="{{ r.region_id }}">{{ r.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-primary">Classify latest observation</button>
+      </div>
+    </form>
+    <p class="small text-muted mt-2 mb-0">
+      Uses the region's most recent weather observation. High/Extreme results auto-create a
+      warning alert (via a database trigger).
+    </p>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-body">
+    <h5 class="card-title">Prediction History</h5>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>#</th><th>Region</th><th>Severity</th><th>Temp °C</th><th>Humidity %</th>
+          <th>Wind</th><th>Rule fired</th><th>When</th></tr></thead>
+        <tbody>
+          {% for p in preds %}
+          <tr>
+            <td>{{ p.prediction_id }}</td>
+            <td>{{ p.region_name }}</td>
+            <td><span class="sev-badge sev-{{ p.level }}">{{ p.level }}</span></td>
+            <td>{{ p.temperature }}</td><td>{{ p.humidity }}</td><td>{{ p.wind_speed }}</td>
+            <td class="small text-muted">{{ p.reason }}</td>
+            <td class="small text-muted">{{ p.predicted_at }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="text-muted">No predictions yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
