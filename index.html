@@ -115,6 +115,55 @@
   .form-control:focus, .form-select:focus { background:rgba(255,255,255,.06);
     border-color:var(--accent); box-shadow:0 0 0 .2rem rgba(255,107,53,.2); color:var(--text); }
 
+  /* ---- Login / hero landing ---- */
+  .hero { padding:2.6rem 1rem 1.4rem; }
+  .hero-flame { font-size:3.4rem; filter:drop-shadow(0 8px 24px rgba(255,87,34,.55));
+    animation:flick 1.5s ease-in-out infinite; }
+  .hero-title { font-weight:800; font-size:3rem; letter-spacing:1px; margin:.15rem 0 0;
+    background:linear-gradient(90deg,#ff3b3b,#ff5722 45%,#ff9838); background-size:200% auto;
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+    animation:shimmer 6s linear infinite; }
+  .hero-sub { color:var(--text); font-weight:600; font-size:1.12rem; margin:.35rem 0 .5rem; }
+  .hero-desc { color:var(--muted); max-width:640px; margin:0 auto 1.1rem; line-height:1.6; }
+  .chips { display:flex; flex-wrap:wrap; gap:.5rem; justify-content:center; }
+  .chip { background:rgba(255,110,50,.09); border:1px solid rgba(255,110,50,.24); color:#ffcaa8;
+    padding:.38rem .85rem; border-radius:999px; font-size:.8rem; font-weight:500; transition:.2s; }
+  .chip:hover { background:rgba(255,110,50,.18); transform:translateY(-2px); }
+  .login-panel { max-width:880px; margin:.6rem auto 0; background:var(--panel);
+    border:1px solid var(--panel-brd); border-radius:22px; padding:1.6rem;
+    backdrop-filter:blur(12px); box-shadow:0 16px 50px rgba(0,0,0,.55);
+    animation:riseIn .5s cubic-bezier(.2,.7,.2,1); }
+  .live-dot { color:#ff5c5c; font-size:.78rem; font-weight:600; }
+  .live-dot::first-letter { animation:blink 1.3s steps(1) infinite; }
+  @keyframes blink { 50%{ opacity:.25; } }
+  .user-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:.85rem; }
+  @media (max-width:720px){ .user-grid{ grid-template-columns:1fr; } .hero-title{ font-size:2.3rem; } }
+  .user-card { display:flex; align-items:center; gap:.9rem; padding:.85rem 1rem; border-radius:15px;
+    background:rgba(255,255,255,.025); border:1px solid var(--panel-brd); cursor:pointer;
+    transition:transform .2s, background .2s, border-color .2s; position:relative; overflow:hidden; }
+  .user-card::before { content:""; position:absolute; left:0; top:0; bottom:0; width:4px;
+    background:var(--accent); opacity:0; transition:opacity .2s; }
+  .user-card:hover { transform:translateY(-3px); background:rgba(255,87,34,.09);
+    border-color:rgba(255,87,34,.45); }
+  .user-card:hover::before { opacity:1; }
+  .user-card:hover .enter { opacity:1; transform:translateX(0); }
+  .avatar { width:46px; height:46px; border-radius:13px; display:flex; align-items:center;
+    justify-content:center; font-weight:800; font-size:1rem; color:#fff; flex-shrink:0;
+    box-shadow:0 4px 14px rgba(0,0,0,.4); }
+  .avatar.adm { background:linear-gradient(135deg,#e11d1d,#ff5722); }
+  .avatar.off { background:linear-gradient(135deg,#ff5722,#ff9838); }
+  .avatar.cit { background:linear-gradient(135deg,#b23a10,#6b2410); }
+  .user-meta { flex:1; min-width:0; }
+  .user-name { font-weight:700; }
+  .user-handle { color:var(--muted); font-size:.79rem; overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; }
+  .role-pill { font-size:.7rem; font-weight:700; padding:.26rem .62rem; border-radius:999px; flex-shrink:0; }
+  .role-pill.adm { background:rgba(225,29,29,.2); color:#ffb0b0; border:1px solid rgba(225,29,29,.4); }
+  .role-pill.off { background:rgba(255,152,56,.18); color:#ffca8a; border:1px solid rgba(255,152,56,.42); }
+  .role-pill.cit { background:rgba(255,255,255,.07); color:#d9c7bd; border:1px solid rgba(255,255,255,.16); }
+  .enter { color:var(--accent-2); font-weight:800; font-size:1.25rem; opacity:0;
+    transform:translateX(-6px); transition:.2s; flex-shrink:0; }
+
   /* View entry animation */
   @keyframes riseIn { from{ opacity:0; transform:translateY(16px);} to{ opacity:1; transform:none;} }
   #app.animate { animation:riseIn .45s cubic-bezier(.2,.7,.2,1); }
@@ -459,21 +508,47 @@ function app(html){
 function sevBadge(l){ return `<span class="sev-badge sev-${l==='No data'?'Low':l}">${l}</span>`; }
 
 // ---- Login screen ----
+function initials(name){ return name.trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
 function loginScreen() {
   const users = run("SELECT * FROM User ORDER BY CASE role WHEN 'Administrator' THEN 1 WHEN 'Officer' THEN 2 ELSE 3 END, full_name");
+  const meta = {
+    Administrator: {cls:'adm', desc:'Full access · DB admin · reports'},
+    Officer:       {cls:'off', desc:'Assign &amp; resolve complaints'},
+    Citizen:       {cls:'cit', desc:'File complaints · view alerts'}
+  };
   app(`
-   <div class="row justify-content-center"><div class="col-md-7">
-     <div class="card"><div class="card-body">
-       <h4 class="mb-1">Login</h4>
-       <p class="text-muted small">This live demo runs entirely in your browser on real SQLite (sql.js).
-          Pick a demo account to log in as — each role sees a different dashboard (role-based access control).</p>
-       <div class="list-group">
-         ${users.map(u => `<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" onclick="loginAs(${u.user_id})">
-             <span><strong>${esc(u.full_name)}</strong> <span class="text-muted small">@${esc(u.username)}</span></span>
-             <span class="badge bg-secondary">${u.role}</span></a>`).join('')}
-       </div>
-     </div></div>
-   </div></div>`);
+   <div class="hero text-center">
+     <div class="hero-flame">🔥</div>
+     <h1 class="hero-title">HeatGuard</h1>
+     <p class="hero-sub">AI-Based Heatwave Complaint &amp; Early Warning System</p>
+     <p class="hero-desc">Weather monitoring, rule-based heatwave prediction, citizen complaints and
+        automatic warning alerts — a DBMS mini-project running on real SQLite, right in your browser.</p>
+     <div class="chips">
+       <span class="chip">⚡ Real SQLite (sql.js)</span>
+       <span class="chip">🧠 Rule-based expert system</span>
+       <span class="chip">🔐 Role-based access</span>
+       <span class="chip">📊 Live dashboard &amp; reports</span>
+     </div>
+   </div>
+   <div class="login-panel">
+     <div class="d-flex justify-content-between align-items-end mb-3 flex-wrap gap-2">
+       <div><h4 class="mb-0">Choose an account to enter</h4>
+         <span class="text-muted small">Each role opens a different dashboard</span></div>
+       <span class="live-dot">● live demo</span>
+     </div>
+     <div class="user-grid">
+       ${users.map(u => { const m = meta[u.role]; return `
+         <div class="user-card ${m.cls}" onclick="loginAs(${u.user_id})">
+           <div class="avatar ${m.cls}">${initials(u.full_name)}</div>
+           <div class="user-meta">
+             <div class="user-name">${esc(u.full_name)}</div>
+             <div class="user-handle">@${esc(u.username)} · ${m.desc}</div>
+           </div>
+           <span class="role-pill ${m.cls}">${u.role}</span>
+           <span class="enter">→</span>
+         </div>`; }).join('')}
+     </div>
+   </div>`);
 }
 
 // ---- Views ----
