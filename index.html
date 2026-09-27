@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HeatGuard — AI Heatwave Complaint & Early Warning System</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+  body { background:#f6f7f9; }
+  .navbar-brand { font-weight:700; }
+  .nav-link { cursor:pointer; }
+  .sev-Low      { background:#198754; color:#fff; }
+  .sev-Moderate { background:#ffc107; color:#000; }
+  .sev-High     { background:#fd7e14; color:#fff; }
+  .sev-Extreme  { background:#dc3545; color:#fff; }
+  .sev-badge { padding:.25rem .6rem; border-radius:.5rem; font-weight:600; font-size:.8rem; }
+  .risk-card { border-left:6px solid #ccc; }
+  .risk-Low{border-left-color:#198754;} .risk-Moderate{border-left-color:#ffc107;}
+  .risk-High{border-left-color:#fd7e14;} .risk-Extreme{border-left-color:#dc3545;}
+  .card { box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  #loading { position:fixed; inset:0; background:#fff; display:flex; align-items:center;
+             justify-content:center; flex-direction:column; z-index:9999; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner-border text-primary mb-3" role="status"></div>
+  <div>Loading in-browser database (SQLite / sql.js)…</div>
+</div>
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container">
+    <a class="navbar-brand" onclick="go('dashboard')">HeatGuard</a>
+    <div class="collapse navbar-collapse" id="navbar">
+      <ul class="navbar-nav me-auto" id="mainmenu"></ul>
+      <ul class="navbar-nav" id="usermenu"></ul>
+    </div>
+  </div>
+</nav>
+
+<div class="container my-4" id="app"></div>
+
+<footer class="text-center text-muted small py-3">
+  Heatwave Complaint &amp; Early Warning System &mdash; DBMS Mini Project ·
+  runs entirely in your browser with real SQLite (sql.js) · AI module = rule-based expert system (no ML)
+  · <a href="https://github.com/AgrawalPalak08/DBMS_mini_project" target="_blank">source &amp; Flask version on GitHub</a>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- ============================ SCHEMA (same as schema.sql) ============================ -->
+<script id="schema-sql" type="text/plain">
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE User (
+    user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('Citizen','Officer','Administrator')),
+    full_name TEXT NOT NULL,
+    email TEXT UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE Region (
+    region_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    state TEXT NOT NULL,
+    population INTEGER CHECK (population >= 0)
+);
+CREATE TABLE HeatwaveSeverity (
+    severity_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    level TEXT NOT NULL UNIQUE CHECK (level IN ('Low','Moderate','High','Extreme')),
+    rank INTEGER NOT NULL UNIQUE,
+    description TEXT
+);
+CREATE TABLE GovernmentDepartment (
+    dept_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    contact TEXT
+);
+CREATE TABLE Citizen (
+    citizen_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL UNIQUE,
+    region_id INTEGER NOT NULL,
+    phone TEXT, address TEXT,
+    FOREIGN KEY (user_id) REFERENCES User(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (region_id) REFERENCES Region(region_id) ON DELETE RESTRICT
+);
+CREATE TABLE Officer (
+    officer_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL UNIQUE,
+    dept_id INTEGER NOT NULL,
+    designation TEXT,
+    FOREIGN KEY (user_id) REFERENCES User(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (dept_id) REFERENCES GovernmentDepartment(dept_id) ON DELETE RESTRICT
+);
+CREATE TABLE Administrator (
+    admin_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL UNIQUE,
+    office TEXT,
+    FOREIGN KEY (user_id) REFERENCES User(user_id) ON DELETE CASCADE
+);
+CREATE TABLE WeatherStation (
+    station_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    region_id INTEGER NOT NULL,
+    name TEXT NOT NULL, latitude REAL, longitude REAL,
+    installed_on TEXT DEFAULT (date('now')),
+    FOREIGN KEY (region_id) REFERENCES Region(region_id) ON DELETE CASCADE
+);
+CREATE TABLE WeatherObservation (
+    obs_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    station_id INTEGER NOT NULL,
+    temperature REAL NOT NULL,
+    humidity REAL NOT NULL CHECK (humidity BETWEEN 0 AND 100),
+    wind_speed REAL NOT NULL CHECK (wind_speed >= 0),
+    observed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    recorded_by INTEGER,
+    FOREIGN KEY (station_id) REFERENCES WeatherStation(station_id) ON DELETE CASCADE,
+    FOREIGN KEY (recorded_by) REFERENCES User(user_id) ON DELETE SET NULL
+);
+CREATE TABLE HeatwavePrediction (
+    prediction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    region_id INTEGER NOT NULL, obs_id INTEGER,
+    severity_id INTEGER NOT NULL,
+    temperature REAL NOT NULL, humidity REAL NOT NULL, wind_speed REAL NOT NULL,
+    reason TEXT, predicted_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (region_id) REFERENCES Region(region_id) ON DELETE CASCADE,
+    FOREIGN KEY (obs_id) REFERENCES WeatherObservation(obs_id) ON DELETE SET NULL,
+    FOREIGN KEY (severity_id) REFERENCES HeatwaveSeverity(severity_id) ON DELETE RESTRICT
+);
+CREATE TABLE Advisory (
+    advisory_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    severity_id INTEGER NOT NULL, message TEXT NOT NULL,
+    FOREIGN KEY (severity_id) REFERENCES HeatwaveSeverity(severity_id) ON DELETE CASCADE
+);
+CREATE TABLE WarningAlert (
+    alert_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    region_id INTEGER NOT NULL, prediction_id INTEGER, severity_id INTEGER NOT NULL,
+    message TEXT NOT NULL, issued_at TEXT NOT NULL DEFAULT (datetime('now')),
+    is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+    FOREIGN KEY (region_id) REFERENCES Region(region_id) ON DELETE CASCADE,
+    FOREIGN KEY (prediction_id) REFERENCES HeatwavePrediction(prediction_id) ON DELETE SET NULL,
+    FOREIGN KEY (severity_id) REFERENCES HeatwaveSeverity(severity_id) ON DELETE RESTRICT
+);
+CREATE TABLE Complaint (
+    complaint_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    citizen_id INTEGER NOT NULL, region_id INTEGER NOT NULL,
+    dept_id INTEGER, assigned_officer_id INTEGER,
+    category TEXT NOT NULL, description TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open','In Progress','Resolved')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')), resolved_at TEXT,
+    FOREIGN KEY (citizen_id) REFERENCES Citizen(citizen_id) ON DELETE CASCADE,
+    FOREIGN KEY (region_id) REFERENCES Region(region_id) ON DELETE RESTRICT,
+    FOREIGN KEY (dept_id) REFERENCES GovernmentDepartment(dept_id) ON DELETE SET NULL,
+    FOREIGN KEY (assigned_officer_id) REFERENCES Officer(officer_id) ON DELETE SET NULL
+);
+CREATE TABLE Notification (
+    notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL, message TEXT NOT NULL,
+    is_read INTEGER NOT NULL DEFAULT 0 CHECK (is_read IN (0,1)),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES User(user_id) ON DELETE CASCADE
+);
+
+-- TRIGGER: auto-create a WarningAlert for High/Extreme predictions
+CREATE TRIGGER trg_prediction_autowarn
+AFTER INSERT ON HeatwavePrediction
+FOR EACH ROW
+WHEN (SELECT rank FROM HeatwaveSeverity WHERE severity_id = NEW.severity_id) >= 3
+BEGIN
+    INSERT INTO WarningAlert (region_id, prediction_id, severity_id, message, issued_at, is_active)
+    VALUES (NEW.region_id, NEW.prediction_id, NEW.severity_id,
+        'HEATWAVE WARNING (' || (SELECT level FROM HeatwaveSeverity WHERE severity_id = NEW.severity_id) ||
+        '): Recorded ' || NEW.temperature || ' C in ' ||
+        (SELECT name FROM Region WHERE region_id = NEW.region_id) || '. Take precautions.',
+        NEW.predicted_at, 1);
+END;
+
+-- VIEW: region-wise complaint summary
+CREATE VIEW v_region_complaint_summary AS
+SELECT r.region_id, r.name AS region_name,
+    COUNT(c.complaint_id) AS total_complaints,
+    SUM(CASE WHEN c.status='Open' THEN 1 ELSE 0 END) AS open_complaints,
+    SUM(CASE WHEN c.status='In Progress' THEN 1 ELSE 0 END) AS in_progress_complaints,
+    SUM(CASE WHEN c.status='Resolved' THEN 1 ELSE 0 END) AS resolved_complaints
+FROM Region r LEFT JOIN Complaint c ON c.region_id = r.region_id
+GROUP BY r.region_id, r.name;
+</script>
+
+<!-- ============================ APPLICATION LOGIC ============================ -->
+<script>
+let db = null;
+let currentUser = null;   // {user_id, role, full_name, ...}
+
+// ---- Rule-based expert system (mirrors expert_system.py) ----
+const ADVISORIES = {
+  Low:      ["Conditions are normal. Stay aware of weather updates."],
+  Moderate: ["Stay hydrated and drink water regularly.",
+             "Limit strenuous outdoor activity during the afternoon."],
+  High:     ["Avoid outdoor activity between 11am and 4pm.",
+             "Drink plenty of water; avoid alcohol and caffeine.",
+             "Check on elderly relatives and young children."],
+  Extreme:  ["Do NOT go outdoors between 11am and 4pm unless absolutely necessary.",
+             "Stay hydrated; carry water at all times.",
+             "Watch for signs of heat stroke (dizziness, nausea, confusion).",
+             "Keep pets and vulnerable people in cool, ventilated spaces."]
+};
+function classifySeverity(t, h) {
+  t = parseFloat(t); h = parseFloat(h);
+  if (t >= 45) return ["Extreme", `Rule: temperature ${t} C >= 45 C.`];
+  if (t >= 40 && h <= 20) return ["Extreme", `Rule: temperature ${t} C >= 40 C AND humidity ${h}% <= 20% (dry heat).`];
+  if (t >= 40) return ["High", `Rule: temperature ${t} C >= 40 C.`];
+  if (t >= 35) return ["Moderate", `Rule: temperature ${t} C >= 35 C.`];
+  return ["Low", `Rule: temperature ${t} C is below 35 C.`];
+}
+
+// ---- DB helpers ----
+function run(sql, params=[]) {
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  const rows = [];
+  while (stmt.step()) rows.push(stmt.getAsObject());
+  stmt.free();
+  return rows;
+}
+function one(sql, params=[]) { const r = run(sql, params); return r.length ? r[0] : null; }
+function exec(sql, params=[]) { const stmt = db.prepare(sql); stmt.bind(params); stmt.step(); stmt.free(); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---- Seed data ----
+function seed() {
+  const sev = [["Low",1,"Normal conditions; no significant heat risk."],
+    ["Moderate",2,"Elevated temperatures; take basic precautions."],
+    ["High",3,"Dangerous heat; avoid midday exposure."],
+    ["Extreme",4,"Life-threatening heat; stay indoors, high alert."]];
+  sev.forEach(s => exec("INSERT INTO HeatwaveSeverity (level,rank,description) VALUES (?,?,?)", s));
+  const sevId = {}; run("SELECT * FROM HeatwaveSeverity").forEach(r => sevId[r.level]=r.severity_id);
+
+  const regions = [["Nagpur","Maharashtra",2500000],["Vidarbha East","Maharashtra",900000],
+    ["Akola","Maharashtra",600000],["Chandrapur","Maharashtra",450000]];
+  regions.forEach(r => exec("INSERT INTO Region (name,state,population) VALUES (?,?,?)", r));
+  const regId = {}; run("SELECT * FROM Region").forEach(r => regId[r.name]=r.region_id);
+
+  const depts = [["Water Supply","Manages drinking water and tanker distribution.","1800-111-222"],
+    ["Health","Handles heat-illness response and hospitals.","1800-333-444"],
+    ["Electricity Board","Power supply and outage response.","1800-555-666"],
+    ["Disaster Management","Coordinates emergency heatwave response.","1800-777-888"]];
+  depts.forEach(d => exec("INSERT INTO GovernmentDepartment (name,description,contact) VALUES (?,?,?)", d));
+  const deptId = {}; run("SELECT * FROM GovernmentDepartment").forEach(r => deptId[r.name]=r.dept_id);
+
+  for (const [level, msgs] of Object.entries(ADVISORIES))
+    msgs.forEach(m => exec("INSERT INTO Advisory (severity_id,message) VALUES (?,?)", [sevId[level], m]));
+
+  const H = "demo";  // placeholder hash; login is simulated in the static demo
+  function addUser(u, role, name, email){ exec("INSERT INTO User (username,password_hash,role,full_name,email) VALUES (?,?,?,?,?)",[u,H,role,name,email]); return one("SELECT last_insert_rowid() AS id").id; }
+
+  const adminU = addUser("admin","Administrator","System Administrator","admin@heatgov.in");
+  exec("INSERT INTO Administrator (user_id,office) VALUES (?,?)",[adminU,"State Disaster Cell"]);
+
+  const off1U = addUser("officer1","Officer","Anil Deshmukh","anil@heatgov.in");
+  exec("INSERT INTO Officer (user_id,dept_id,designation) VALUES (?,?,?)",[off1U,deptId["Water Supply"],"Water Supply Officer"]);
+  const off1 = one("SELECT last_insert_rowid() AS id").id;
+  const off2U = addUser("officer2","Officer","Meena Kulkarni","meena@heatgov.in");
+  exec("INSERT INTO Officer (user_id,dept_id,designation) VALUES (?,?,?)",[off2U,deptId["Health"],"Health Officer"]);
+  const off2 = one("SELECT last_insert_rowid() AS id").id;
+
+  const citSpec = [["priya","Priya Sharma","priya@example.com","Nagpur","9800000001","12 MG Road, Nagpur"],
+    ["rahul","Rahul Verma","rahul@example.com","Vidarbha East","9800000002","5 Station Rd"],
+    ["sana","Sana Khan","sana@example.com","Akola","9800000003","88 Civil Lines, Akola"],
+    ["dev","Dev Patel","dev@example.com","Chandrapur","9800000004","3 Market Ln"]];
+  const citId = {};
+  citSpec.forEach(([u,n,e,reg,ph,ad]) => {
+    const uid = addUser(u,"Citizen",n,e);
+    exec("INSERT INTO Citizen (user_id,region_id,phone,address) VALUES (?,?,?,?)",[uid,regId[reg],ph,ad]);
+    citId[u] = one("SELECT last_insert_rowid() AS id").id;
+  });
+
+  const stSpec = [["Nagpur","Nagpur Central AWS",21.1458,79.0882],["Nagpur","Nagpur Airport AWS",21.0922,79.0472],
+    ["Vidarbha East","Vidarbha East AWS",20.9320,79.9500],["Akola","Akola City AWS",20.7000,77.0000],
+    ["Chandrapur","Chandrapur AWS",19.9615,79.2961]];
+  const stId = {};
+  stSpec.forEach(([reg,n,la,lo]) => { exec("INSERT INTO WeatherStation (region_id,name,latitude,longitude) VALUES (?,?,?,?)",[regId[reg],n,la,lo]); stId[n]=one("SELECT last_insert_rowid() AS id").id; });
+
+  const obsSpec = [["Nagpur Central AWS",47.0,18,8,0,true],["Nagpur Central AWS",44.0,25,6,1,true],
+    ["Nagpur Central AWS",41.0,30,5,2,true],["Nagpur Airport AWS",46.5,15,10,0,false],
+    ["Vidarbha East AWS",41.0,35,7,0,true],["Vidarbha East AWS",38.0,40,6,2,true],
+    ["Akola City AWS",36.5,45,9,0,true],["Akola City AWS",34.0,55,8,3,true],
+    ["Chandrapur AWS",33.0,60,12,0,true]];
+  obsSpec.forEach(([st,t,h,w,days,mk]) => {
+    const sid = stId[st];
+    exec(`INSERT INTO WeatherObservation (station_id,temperature,humidity,wind_speed,observed_at,recorded_by) VALUES (?,?,?,?, datetime('now','-${days} days'), ?)`,[sid,t,h,w,off1U]);
+    const obsId = one("SELECT last_insert_rowid() AS id").id;
+    if (mk) {
+      const [level,reason] = classifySeverity(t,h);
+      const reg = one("SELECT region_id FROM WeatherStation WHERE station_id=?",[sid]).region_id;
+      exec(`INSERT INTO HeatwavePrediction (region_id,obs_id,severity_id,temperature,humidity,wind_speed,reason,predicted_at) VALUES (?,?,?,?,?,?,?, datetime('now','-${days} days'))`,[reg,obsId,sevId[level],t,h,w,reason]);
+      // trigger auto-creates WarningAlert for High/Extreme
+    }
+  });
+
+  const compSpec = [
+    ["priya","Water Shortage","No water supply for 2 days in our locality during peak heat.","Open",null,null,0],
+    ["priya","Heat Illness","Elderly neighbour showing signs of heat exhaustion, need help.","In Progress","Health",off2,1],
+    ["rahul","Power Outage","Frequent power cuts making it impossible to run fans/coolers.","Open","Electricity Board",null,0],
+    ["sana","Water Shortage","Tanker did not arrive as scheduled this week.","Resolved","Water Supply",off1,3],
+    ["dev","Public Cooling","Request for a public cooling center near the bus stand.","Open",null,null,2],
+    ["rahul","Heat Illness","Need ORS packets distributed at the community hall.","In Progress","Health",off2,1]];
+  compSpec.forEach(([u,cat,desc,status,dept,officer,days]) => {
+    const rid = one("SELECT region_id FROM Citizen WHERE citizen_id=?",[citId[u]]).region_id;
+    exec(`INSERT INTO Complaint (citizen_id,region_id,dept_id,assigned_officer_id,category,description,status,created_at,resolved_at) VALUES (?,?,?,?,?,?,?, datetime('now','-${days} days'), ${status==='Resolved'?"datetime('now')":"NULL"})`,
+      [citId[u], rid, dept?deptId[dept]:null, officer, cat, desc, status]);
+  });
+  exec("INSERT INTO Notification (user_id,message) VALUES (?,?)",[adminU,"Welcome to the Heatwave Early Warning System."]);
+}
+
+// ---- Current-role helpers ----
+function citizenOf(uid){ return one("SELECT * FROM Citizen WHERE user_id=?",[uid]); }
+function officerOf(uid){ return one("SELECT o.*, d.name AS dept_name FROM Officer o JOIN GovernmentDepartment d ON d.dept_id=o.dept_id WHERE o.user_id=?",[uid]); }
+
+// ---- Navigation ----
+function buildNav() {
+  const menu = document.getElementById('mainmenu');
+  const um = document.getElementById('usermenu');
+  if (!currentUser) { menu.innerHTML=''; um.innerHTML=''; return; }
+  const links = [["dashboard","Dashboard"],["weather","Weather"],["predictions","Predictions"],
+    ["alerts","Alerts"],["complaints","Complaints"]];
+  if (currentUser.role !== 'Citizen') links.push(["reports","Reports"]);
+  if (currentUser.role === 'Administrator') { links.push(["dbadmin","DB Admin"]); links.push(["sql","SQL Console"]); }
+  menu.innerHTML = links.map(([v,l]) => `<li class="nav-item"><a class="nav-link" onclick="go('${v}')">${l}</a></li>`).join('');
+  um.innerHTML = `<li class="nav-item"><span class="nav-link">${esc(currentUser.full_name)} (${currentUser.role})</span></li>
+    <li class="nav-item"><a class="nav-link" onclick="logout()">Switch user</a></li>`;
+}
+function go(view){ buildNav(); (VIEWS[view]||VIEWS.dashboard)(); window.scrollTo(0,0); }
+function logout(){ currentUser=null; buildNav(); loginScreen(); }
+function loginAs(uid){ currentUser = one("SELECT * FROM User WHERE user_id=?",[uid]); go('dashboard'); }
+
+function app(html){ document.getElementById('app').innerHTML = html; }
+function sevBadge(l){ return `<span class="sev-badge sev-${l==='No data'?'Low':l}">${l}</span>`; }
+
+// ---- Login screen ----
+function loginScreen() {
+  const users = run("SELECT * FROM User ORDER BY CASE role WHEN 'Administrator' THEN 1 WHEN 'Officer' THEN 2 ELSE 3 END, full_name");
+  app(`
+   <div class="row justify-content-center"><div class="col-md-7">
+     <div class="card"><div class="card-body">
+       <h4 class="mb-1">Login</h4>
+       <p class="text-muted small">This live demo runs entirely in your browser on real SQLite (sql.js).
+          Pick a demo account to log in as — each role sees a different dashboard (role-based access control).</p>
+       <div class="list-group">
+         ${users.map(u => `<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" onclick="loginAs(${u.user_id})">
+             <span><strong>${esc(u.full_name)}</strong> <span class="text-muted small">@${esc(u.username)}</span></span>
+             <span class="badge bg-secondary">${u.role}</span></a>`).join('')}
+       </div>
+     </div></div>
+   </div></div>`);
+}
+
+// ---- Views ----
+const VIEWS = {};
+
+VIEWS.dashboard = function() {
+  if (currentUser.role === 'Citizen') return citizenDashboard();
+  if (currentUser.role === 'Officer') return officerDashboard();
+  return adminDashboard();
+};
+
+function citizenDashboard() {
+  const c = citizenOf(currentUser.user_id);
+  const region = one("SELECT * FROM Region WHERE region_id=?",[c.region_id]);
+  const pred = one("SELECT hp.*, s.level FROM HeatwavePrediction hp JOIN HeatwaveSeverity s ON s.severity_id=hp.severity_id WHERE hp.region_id=? ORDER BY hp.predicted_at DESC LIMIT 1",[c.region_id]);
+  const alerts = run("SELECT wa.*, s.level FROM WarningAlert wa JOIN HeatwaveSeverity s ON s.severity_id=wa.severity_id WHERE wa.region_id=? AND wa.is_active=1 ORDER BY wa.issued_at DESC",[c.region_id]);
+  const mine = run("SELECT * FROM Complaint WHERE citizen_id=? ORDER BY created_at DESC",[c.citizen_id]);
+  const adv = pred ? (ADVISORIES[pred.level]||[]) : [];
+  app(`
+    <h3>Welcome, ${esc(currentUser.full_name)}</h3>
+    <p class="text-muted">Your region: <strong>${esc(region.name)}, ${esc(region.state)}</strong></p>
+    <div class="row g-3">
+      <div class="col-md-6"><div class="card"><div class="card-body">
+        <h5>Current Heat Status</h5>
+        ${pred ? `<p>Latest severity: ${sevBadge(pred.level)}</p>
+          <p class="small text-muted">Recorded ${pred.temperature} °C, humidity ${pred.humidity}%, wind ${pred.wind_speed} km/h<br>Assessed at ${pred.predicted_at}</p>`
+          : `<p class="text-muted">No prediction yet.</p>`}
+      </div></div></div>
+      <div class="col-md-6"><div class="card"><div class="card-body">
+        <h5>Advisories</h5>${adv.length?`<ul class="mb-0">${adv.map(a=>`<li>${esc(a)}</li>`).join('')}</ul>`:`<p class="text-muted mb-0">No advisories.</p>`}
+      </div></div></div>
+    </div>
+    <div class="card mt-3"><div class="card-body">
+      <h5>Active Warning Alerts for ${esc(region.name)}</h5>
+      ${alerts.length?alerts.map(a=>`<div class="alert alert-warning mb-2">${sevBadge(a.level)} ${esc(a.message)}<div class="small text-muted">Issued ${a.issued_at}</div></div>`).join(''):`<p class="text-muted mb-0">No active alerts. Stay safe!</p>`}
+    </div></div>
+    <div class="card mt-3"><div class="card-body">
+      <div class="d-flex justify-content-between"><h5>My Complaints</h5><button class="btn btn-sm btn-primary" onclick="go('complaints')">File / View</button></div>
+      <table class="table table-sm mt-2"><thead><tr><th>#</th><th>Category</th><th>Status</th><th>Filed</th></tr></thead><tbody>
+      ${mine.length?mine.map(c=>`<tr><td>${c.complaint_id}</td><td>${esc(c.category)}</td><td>${statusBadge(c.status)}</td><td class="small text-muted">${c.created_at}</td></tr>`).join(''):`<tr><td colspan="4" class="text-muted">None yet.</td></tr>`}
+      </tbody></table>
+    </div></div>`);
+}
+
+function officerDashboard() {
+  const o = officerOf(currentUser.user_id);
+  const assigned = run(`SELECT c.*, r.name AS region_name, cu.full_name AS citizen_name,
+      COALESCE(sev.rank,0) AS region_rank, COALESCE(sev.level,'Low') AS region_level
+    FROM Complaint c JOIN Region r ON r.region_id=c.region_id
+    JOIN Citizen ct ON ct.citizen_id=c.citizen_id JOIN User cu ON cu.user_id=ct.user_id
+    LEFT JOIN (SELECT hp.region_id, hp.severity_id FROM HeatwavePrediction hp
+       JOIN (SELECT region_id, MAX(predicted_at) mx FROM HeatwavePrediction GROUP BY region_id) l
+       ON l.region_id=hp.region_id AND l.mx=hp.predicted_at) lp ON lp.region_id=c.region_id
+    LEFT JOIN HeatwaveSeverity sev ON sev.severity_id=lp.severity_id
+    WHERE (c.assigned_officer_id=? OR c.dept_id=?)
+    ORDER BY (c.status='Resolved') ASC, region_rank DESC, c.created_at ASC`,[o.officer_id,o.dept_id]);
+  const summary = run("SELECT * FROM v_region_complaint_summary ORDER BY total_complaints DESC");
+  app(`
+    <h3 class="mb-1">Officer Dashboard</h3>
+    <p class="text-muted">${esc(currentUser.full_name)} · ${esc(o.dept_name)} · ${esc(o.designation)}</p>
+    <div class="card mb-3"><div class="card-body">
+      <h5>Complaints assigned to you / your department</h5>
+      <p class="small text-muted">Ordered by current region severity (Extreme/High first), then oldest first.</p>
+      <table class="table table-hover align-middle"><thead><tr><th>#</th><th>Region</th><th>Risk</th><th>Category</th><th>Citizen</th><th>Status</th><th></th></tr></thead><tbody>
+      ${assigned.length?assigned.map(c=>`<tr><td>${c.complaint_id}</td><td>${esc(c.region_name)}</td><td>${sevBadge(c.region_level)}</td><td>${esc(c.category)}</td><td>${esc(c.citizen_name)}</td><td>${statusBadge(c.status)}</td><td><button class="btn btn-sm btn-outline-primary" onclick="go('complaints');setTimeout(()=>openComplaint(${c.complaint_id}),0)">Manage</button></td></tr>`).join(''):`<tr><td colspan="7" class="text-muted">No complaints assigned.</td></tr>`}
+      </tbody></table>
+    </div></div>
+    ${summaryCard(summary)}`);
+}
+
+function adminDashboard() {
+  const counts = {
+    regions: one("SELECT COUNT(*) c FROM Region").c,
+    users: one("SELECT COUNT(*) c FROM User").c,
+    complaints: one("SELECT COUNT(*) c FROM Complaint").c,
+    alerts: one("SELECT COUNT(*) c FROM WarningAlert WHERE is_active=1").c };
+  const summary = run("SELECT * FROM v_region_complaint_summary ORDER BY total_complaints DESC");
+  const risk = regionRisk();
+  app(`
+    <h3 class="mb-3">Administrator Dashboard</h3>
+    <div class="row g-3 mb-3">
+      ${statCard(counts.regions,'Regions')}${statCard(counts.users,'Users')}
+      ${statCard(counts.complaints,'Complaints')}${statCard(counts.alerts,'Active Alerts','text-danger')}
+    </div>
+    <div class="row g-3">
+      <div class="col-md-6"><div class="card"><div class="card-body"><h5>Region Risk Levels</h5>
+        ${risk.map(r=>`<div class="card risk-card risk-${r.level==='No data'?'Low':r.level} mb-2"><div class="card-body py-2 d-flex justify-content-between align-items-center">
+          <span><strong>${esc(r.region_name)}</strong>${r.temperature!=null?` <span class="small text-muted">— ${r.temperature} °C</span>`:''}</span>${sevBadge(r.level)}</div></div>`).join('')}
+      </div></div></div>
+      <div class="col-md-6">${summaryCard(summary,true)}</div>
+    </div>`);
+}
+
+VIEWS.weather = function() {
+  const canEdit = currentUser.role !== 'Citizen';
+  const stations = run("SELECT ws.*, r.name AS region_name FROM WeatherStation ws JOIN Region r ON r.region_id=ws.region_id ORDER BY r.name, ws.name");
+  const obs = run("SELECT wo.*, ws.name AS station_name, r.name AS region_name FROM WeatherObservation wo JOIN WeatherStation ws ON ws.station_id=wo.station_id JOIN Region r ON r.region_id=ws.region_id ORDER BY wo.observed_at DESC LIMIT 50");
+  const regions = run("SELECT * FROM Region ORDER BY name");
+  app(`
+    <h3 class="mb-3">Weather Monitoring</h3>
+    ${canEdit?`<div class="card mb-3"><div class="card-body">
+      <h6>Record Weather Observation</h6>
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3"><select id="w_station" class="form-select form-select-sm">${stations.map(s=>`<option value="${s.station_id}">${esc(s.name)} (${esc(s.region_name)})</option>`).join('')}</select></div>
+        <div class="col"><input id="w_temp" type="number" step="0.1" class="form-control form-control-sm" placeholder="Temp °C"></div>
+        <div class="col"><input id="w_hum" type="number" step="0.1" class="form-control form-control-sm" placeholder="Humidity %"></div>
+        <div class="col"><input id="w_wind" type="number" step="0.1" class="form-control form-control-sm" placeholder="Wind km/h"></div>
+        <div class="col-auto"><button class="btn btn-sm btn-primary" onclick="addObservation()">Record + Predict</button></div>
+      </div>
+      <p class="small text-muted mt-2 mb-0">Recording runs the rule-based expert system; High/Extreme results auto-create an alert via the database trigger.</p>
+    </div></div>`:''}
+    <div class="card mb-3"><div class="card-body"><h5>Weather Stations</h5>
+      <table class="table table-sm"><thead><tr><th>ID</th><th>Name</th><th>Region</th><th>Lat</th><th>Lon</th></tr></thead><tbody>
+      ${stations.map(s=>`<tr><td>${s.station_id}</td><td>${esc(s.name)}</td><td>${esc(s.region_name)}</td><td>${s.latitude}</td><td>${s.longitude}</td></tr>`).join('')}
+      </tbody></table></div></div>
+    <div class="card"><div class="card-body"><h5>Recent Observations</h5>
+      <table class="table table-sm"><thead><tr><th>Region</th><th>Station</th><th>Temp °C</th><th>Humidity %</th><th>Wind</th><th>Observed</th></tr></thead><tbody>
+      ${obs.map(o=>`<tr><td>${esc(o.region_name)}</td><td>${esc(o.station_name)}</td><td>${o.temperature}</td><td>${o.humidity}</td><td>${o.wind_speed}</td><td class="small text-muted">${o.observed_at}</td></tr>`).join('')}
+      </tbody></table></div></div>`);
+};
+function addObservation() {
+  const sid = +document.getElementById('w_station').value;
+  const t = parseFloat(document.getElementById('w_temp').value);
+  const h = parseFloat(document.getElementById('w_hum').value);
+  const w = parseFloat(document.getElementById('w_wind').value);
+  if (isNaN(t)||isNaN(h)||isNaN(w)) { alert("Enter temperature, humidity and wind."); return; }
+  exec("INSERT INTO WeatherObservation (station_id,temperature,humidity,wind_speed,recorded_by) VALUES (?,?,?,?,?)",[sid,t,h,w,currentUser.user_id]);
+  const obsId = one("SELECT last_insert_rowid() AS id").id;
+  const reg = one("SELECT region_id FROM WeatherStation WHERE station_id=?",[sid]).region_id;
+  runPrediction(reg, obsId, t, h, w);
+  VIEWS.weather();
+}
+function runPrediction(regionId, obsId, t, h, w) {
+  const [level,reason] = classifySeverity(t,h);
+  const sid = one("SELECT severity_id, rank FROM HeatwaveSeverity WHERE level=?",[level]);
+  exec("INSERT INTO HeatwavePrediction (region_id,obs_id,severity_id,temperature,humidity,wind_speed,reason) VALUES (?,?,?,?,?,?,?)",[regionId,obsId,sid.severity_id,t,h,w,reason]);
+  // trigger creates the alert automatically for rank>=3
+  return level;
+}
+
+VIEWS.predictions = function() {
+  const canRun = currentUser.role !== 'Citizen';
+  const regions = run("SELECT * FROM Region ORDER BY name");
+  const preds = run("SELECT hp.*, r.name AS region_name, s.level FROM HeatwavePrediction hp JOIN Region r ON r.region_id=hp.region_id JOIN HeatwaveSeverity s ON s.severity_id=hp.severity_id ORDER BY hp.predicted_at DESC LIMIT 100");
+  app(`
+    <h3 class="mb-1">AI Heatwave Predictions</h3>
+    <p class="text-muted small">Severity is classified by a <strong>rule-based expert system</strong> (threshold rules) — not machine learning.</p>
+    ${canRun?`<div class="card mb-3"><div class="card-body"><h6>Run prediction for a region</h6>
+      <div class="row g-2"><div class="col-auto"><select id="p_region" class="form-select form-select-sm">${regions.map(r=>`<option value="${r.region_id}">${esc(r.name)}</option>`).join('')}</select></div>
+      <div class="col-auto"><button class="btn btn-sm btn-primary" onclick="runRegionPrediction()">Classify latest observation</button></div></div>
+      <p class="small text-muted mt-2 mb-0">Uses the region's most recent observation. High/Extreme auto-creates an alert (DB trigger).</p>
+    </div></div>`:''}
+    <div class="card"><div class="card-body"><h5>Prediction History</h5>
+      <table class="table table-sm"><thead><tr><th>#</th><th>Region</th><th>Severity</th><th>Temp</th><th>Hum</th><th>Wind</th><th>Rule fired</th><th>When</th></tr></thead><tbody>
+      ${preds.map(p=>`<tr><td>${p.prediction_id}</td><td>${esc(p.region_name)}</td><td>${sevBadge(p.level)}</td><td>${p.temperature}</td><td>${p.humidity}</td><td>${p.wind_speed}</td><td class="small text-muted">${esc(p.reason)}</td><td class="small text-muted">${p.predicted_at}</td></tr>`).join('')}
+      </tbody></table></div></div>`);
+};
+function runRegionPrediction() {
+  const reg = +document.getElementById('p_region').value;
+  const obs = one("SELECT wo.* FROM WeatherObservation wo JOIN WeatherStation ws ON ws.station_id=wo.station_id WHERE ws.region_id=? ORDER BY wo.observed_at DESC LIMIT 1",[reg]);
+  if (!obs) { alert("No observation for that region yet."); return; }
+  const level = runPrediction(reg, obs.obs_id, obs.temperature, obs.humidity, obs.wind_speed);
+  VIEWS.predictions();
+  setTimeout(()=>alert("Prediction complete: severity classified as "+level),50);
+}
+
+VIEWS.alerts = function() {
+  let rows, canManage = currentUser.role !== 'Citizen';
+  if (currentUser.role === 'Citizen') {
+    const c = citizenOf(currentUser.user_id);
+    rows = run("SELECT wa.*, r.name AS region_name, s.level FROM WarningAlert wa JOIN Region r ON r.region_id=wa.region_id JOIN HeatwaveSeverity s ON s.severity_id=wa.severity_id WHERE wa.region_id=? AND wa.is_active=1 ORDER BY wa.issued_at DESC",[c.region_id]);
+  } else {
+    rows = run("SELECT wa.*, r.name AS region_name, s.level FROM WarningAlert wa JOIN Region r ON r.region_id=wa.region_id JOIN HeatwaveSeverity s ON s.severity_id=wa.severity_id WHERE wa.is_active=1 ORDER BY wa.issued_at DESC");
+  }
+  app(`<h3 class="mb-3">Active Warning Alerts</h3>
+    ${rows.length?rows.map(a=>`<div class="card mb-3"><div class="card-body">
+      <div class="d-flex justify-content-between"><div>${sevBadge(a.level)} <strong class="ms-2">${esc(a.region_name)}</strong></div>
+      ${canManage?`<button class="btn btn-sm btn-outline-secondary" onclick="deactivateAlert(${a.alert_id})">Mark inactive</button>`:''}</div>
+      <p class="mt-2 mb-1">${esc(a.message)}</p>
+      <div class="mt-1"><strong class="small">Advisories:</strong><ul class="small mb-0">${(ADVISORIES[a.level]||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>
+      <div class="small text-muted mt-2">Issued ${a.issued_at}</div></div></div>`).join(''):`<div class="alert alert-success">No active warning alerts right now.</div>`}`);
+};
+function deactivateAlert(id){ exec("UPDATE WarningAlert SET is_active=0 WHERE alert_id=?",[id]); VIEWS.alerts(); }
+
+VIEWS.complaints = function() {
+  const depts = run("SELECT * FROM GovernmentDepartment ORDER BY name");
+  if (currentUser.role === 'Citizen') {
+    const c = citizenOf(currentUser.user_id);
+    const region = one("SELECT * FROM Region WHERE region_id=?",[c.region_id]);
+    const rows = run("SELECT c.*, r.name AS region_name, d.name AS dept_name FROM Complaint c JOIN Region r ON r.region_id=c.region_id LEFT JOIN GovernmentDepartment d ON d.dept_id=c.dept_id WHERE c.citizen_id=? ORDER BY c.created_at DESC",[c.citizen_id]);
+    app(`<h3 class="mb-3">Complaints</h3>
+      <div class="card mb-4"><div class="card-body">
+        <h6>File a new complaint <span class="small text-muted">(region: ${esc(region.name)})</span></h6>
+        <div class="row g-2"><div class="col-md-4"><select id="c_cat" class="form-select form-select-sm">
+          <option>Water Shortage</option><option>Power Outage</option><option>Heat Illness</option><option>Public Cooling</option><option>Other</option></select></div>
+          <div class="col-md-6"><input id="c_desc" class="form-control form-control-sm" placeholder="Describe the issue"></div>
+          <div class="col-auto"><button class="btn btn-sm btn-primary" onclick="addComplaint()">Submit</button></div></div>
+      </div></div>
+      <div class="card"><div class="card-body"><h5>My Complaints</h5>
+        <table class="table table-hover align-middle"><thead><tr><th>#</th><th>Category</th><th>Status</th><th>Dept</th><th>Filed</th><th></th></tr></thead><tbody>
+        ${rows.length?rows.map(r=>`<tr><td>${r.complaint_id}</td><td>${esc(r.category)}</td><td>${statusBadge(r.status)}</td><td class="small">${esc(r.dept_name||'-')}</td><td class="small text-muted">${r.created_at}</td><td><button class="btn btn-sm btn-outline-primary" onclick="openComplaint(${r.complaint_id})">View</button></td></tr>`).join(''):`<tr><td colspan="6" class="text-muted">None.</td></tr>`}
+        </tbody></table></div></div>`);
+  } else {
+    const rows = run(`SELECT c.*, r.name AS region_name, d.name AS dept_name, cu.full_name AS citizen_name,
+        COALESCE(sev.rank,0) AS region_rank, COALESCE(sev.level,'Low') AS region_level
+      FROM Complaint c JOIN Region r ON r.region_id=c.region_id
+      JOIN Citizen ct ON ct.citizen_id=c.citizen_id JOIN User cu ON cu.user_id=ct.user_id
+      LEFT JOIN GovernmentDepartment d ON d.dept_id=c.dept_id
+      LEFT JOIN (SELECT hp.region_id, hp.severity_id FROM HeatwavePrediction hp
+        JOIN (SELECT region_id, MAX(predicted_at) mx FROM HeatwavePrediction GROUP BY region_id) l
+        ON l.region_id=hp.region_id AND l.mx=hp.predicted_at) lp ON lp.region_id=c.region_id
+      LEFT JOIN HeatwaveSeverity sev ON sev.severity_id=lp.severity_id
+      ORDER BY (c.status='Resolved') ASC, region_rank DESC, c.created_at ASC`);
+    app(`<h3 class="mb-3">Complaints</h3>
+      <div class="card"><div class="card-body"><h5>All Complaints <span class="small text-muted">(severity-prioritised: high-risk regions first)</span></h5>
+        <table class="table table-hover align-middle"><thead><tr><th>#</th><th>Region</th><th>Risk</th><th>Citizen</th><th>Category</th><th>Status</th><th>Dept</th><th></th></tr></thead><tbody>
+        ${rows.map(c=>`<tr><td>${c.complaint_id}</td><td>${esc(c.region_name)}</td><td>${sevBadge(c.region_level)}</td><td>${esc(c.citizen_name)}</td><td>${esc(c.category)}</td><td>${statusBadge(c.status)}</td><td class="small">${esc(c.dept_name||'-')}</td><td><button class="btn btn-sm btn-outline-primary" onclick="openComplaint(${c.complaint_id})">View</button></td></tr>`).join('')}
+        </tbody></table></div></div>`);
+  }
+};
+function addComplaint() {
+  const c = citizenOf(currentUser.user_id);
+  const cat = document.getElementById('c_cat').value;
+  const desc = document.getElementById('c_desc').value.trim();
+  if (!desc) { alert("Please describe the issue."); return; }
+  exec("INSERT INTO Complaint (citizen_id,region_id,category,description) VALUES (?,?,?,?)",[c.citizen_id,c.region_id,cat,desc]);
+  VIEWS.complaints();
+}
+function openComplaint(id) {
+  const c = one(`SELECT c.*, r.name AS region_name, d.name AS dept_name, cu.full_name AS citizen_name, ou.full_name AS officer_name
+    FROM Complaint c JOIN Region r ON r.region_id=c.region_id
+    JOIN Citizen ct ON ct.citizen_id=c.citizen_id JOIN User cu ON cu.user_id=ct.user_id
+    LEFT JOIN GovernmentDepartment d ON d.dept_id=c.dept_id
+    LEFT JOIN Officer o ON o.officer_id=c.assigned_officer_id LEFT JOIN User ou ON ou.user_id=o.user_id
+    WHERE c.complaint_id=?`,[id]);
+  if (!c) return;
+  const canManage = currentUser.role !== 'Citizen';
+  const depts = run("SELECT * FROM GovernmentDepartment ORDER BY name");
+  const officers = run("SELECT o.officer_id, u.full_name, d.name AS dept_name FROM Officer o JOIN User u ON u.user_id=o.user_id JOIN GovernmentDepartment d ON d.dept_id=o.dept_id ORDER BY u.full_name");
+  app(`<a class="small" onclick="go('complaints')" style="cursor:pointer">&larr; Back to complaints</a>
+    <h3 class="mt-2 mb-3">Complaint #${c.complaint_id}</h3>
+    <div class="row g-3"><div class="col-md-7"><div class="card"><div class="card-body">
+      <h5>${esc(c.category)} ${statusBadge(c.status)}</h5><p>${esc(c.description)}</p>
+      <table class="table table-sm">
+        <tr><th>Region</th><td>${esc(c.region_name)}</td></tr>
+        <tr><th>Filed by</th><td>${esc(c.citizen_name)}</td></tr>
+        <tr><th>Department</th><td>${esc(c.dept_name||'Not assigned')}</td></tr>
+        <tr><th>Officer</th><td>${esc(c.officer_name||'Not assigned')}</td></tr>
+        <tr><th>Created</th><td>${c.created_at}</td></tr><tr><th>Resolved</th><td>${c.resolved_at||'-'}</td></tr>
+      </table></div></div></div>
+      ${canManage?`<div class="col-md-5">
+        <div class="card mb-3"><div class="card-body"><h6>Assign</h6>
+          <label class="form-label small">Department</label>
+          <select id="a_dept" class="form-select form-select-sm mb-2"><option value="">-- none --</option>${depts.map(d=>`<option value="${d.dept_id}" ${c.dept_id==d.dept_id?'selected':''}>${esc(d.name)}</option>`).join('')}</select>
+          <label class="form-label small">Officer</label>
+          <select id="a_off" class="form-select form-select-sm mb-2"><option value="">-- none --</option>${officers.map(o=>`<option value="${o.officer_id}" ${c.assigned_officer_id==o.officer_id?'selected':''}>${esc(o.full_name)} (${esc(o.dept_name)})</option>`).join('')}</select>
+          <button class="btn btn-sm btn-primary" onclick="assignComplaint(${c.complaint_id})">Update Assignment</button>
+        </div></div>
+        <div class="card"><div class="card-body"><h6>Update Status</h6>
+          <div class="d-flex gap-2"><select id="a_status" class="form-select form-select-sm">
+            ${['Open','In Progress','Resolved'].map(s=>`<option ${c.status==s?'selected':''}>${s}</option>`).join('')}</select>
+            <button class="btn btn-sm btn-success" onclick="updateStatus(${c.complaint_id})">Save</button></div>
+          <p class="small text-muted mt-2 mb-0">Workflow: Open → In Progress → Resolved</p>
+        </div></div></div>`:''}
+    </div>`);
+}
+function assignComplaint(id) {
+  const dept = document.getElementById('a_dept').value || null;
+  const off = document.getElementById('a_off').value || null;
+  exec("UPDATE Complaint SET dept_id=?, assigned_officer_id=? WHERE complaint_id=?",[dept,off,id]);
+  openComplaint(id);
+}
+function updateStatus(id) {
+  const s = document.getElementById('a_status').value;
+  if (s==='Resolved') exec("UPDATE Complaint SET status=?, resolved_at=datetime('now') WHERE complaint_id=?",[s,id]);
+  else exec("UPDATE Complaint SET status=?, resolved_at=NULL WHERE complaint_id=?",[s,id]);
+  openComplaint(id);
+}
+
+VIEWS.reports = function() {
+  const summary = run("SELECT * FROM v_region_complaint_summary ORDER BY total_complaints DESC");
+  const risk = regionRisk();
+  const active = run("SELECT wa.*, r.name AS region_name, s.level, s.rank FROM WarningAlert wa JOIN Region r ON r.region_id=wa.region_id JOIN HeatwaveSeverity s ON s.severity_id=wa.severity_id WHERE wa.is_active=1 ORDER BY s.rank DESC, wa.issued_at DESC");
+  app(`<h3 class="mb-3">Dashboard &amp; Reports</h3>
+    <div class="row g-3 mb-3">
+      <div class="col-md-6"><div class="card"><div class="card-body"><h6>Complaints by Status</h6><canvas id="ch1" height="180"></canvas></div></div></div>
+      <div class="col-md-6"><div class="card"><div class="card-body"><h6>Complaints by Region</h6><canvas id="ch2" height="180"></canvas></div></div></div>
+      <div class="col-md-6"><div class="card"><div class="card-body"><h6>Prediction Severity Distribution</h6><canvas id="ch3" height="180"></canvas></div></div></div>
+      <div class="col-md-6"><div class="card"><div class="card-body"><h6>Predictions Trend (per day)</h6><canvas id="ch4" height="180"></canvas></div></div></div>
+    </div>
+    <div class="row g-3">
+      <div class="col-md-6"><div class="card"><div class="card-body"><h6>Region Risk Levels</h6>
+        ${risk.map(r=>`<div class="card risk-card risk-${r.level==='No data'?'Low':r.level} mb-2"><div class="card-body py-2 d-flex justify-content-between"><span>${esc(r.region_name)}${r.temperature!=null?` <span class="small text-muted">— ${r.temperature} °C</span>`:''}</span>${sevBadge(r.level)}</div></div>`).join('')}
+      </div></div></div>
+      <div class="col-md-6"><div class="card"><div class="card-body"><h6>Active Alerts</h6>
+        <table class="table table-sm"><thead><tr><th>Region</th><th>Severity</th><th>Issued</th></tr></thead><tbody>
+        ${active.length?active.map(a=>`<tr><td>${esc(a.region_name)}</td><td>${sevBadge(a.level)}</td><td class="small text-muted">${a.issued_at}</td></tr>`).join(''):`<tr><td colspan="3" class="text-muted">No active alerts.</td></tr>`}
+        </tbody></table></div></div></div>
+    </div>`);
+  drawCharts();
+};
+let charts = [];
+function drawCharts() {
+  charts.forEach(c=>c.destroy()); charts=[];
+  const SEV = {Low:'#198754',Moderate:'#ffc107',High:'#fd7e14',Extreme:'#dc3545'};
+  const st = {}; run("SELECT status, COUNT(*) c FROM Complaint GROUP BY status").forEach(r=>st[r.status]=r.c);
+  charts.push(new Chart(ch1,{type:'pie',data:{labels:['Open','In Progress','Resolved'],datasets:[{data:[st.Open||0,st['In Progress']||0,st.Resolved||0],backgroundColor:['#6c757d','#ffc107','#198754']}]}}));
+  const rg = run("SELECT region_name, total_complaints FROM v_region_complaint_summary ORDER BY total_complaints DESC");
+  charts.push(new Chart(ch2,{type:'bar',data:{labels:rg.map(r=>r.region_name),datasets:[{label:'Complaints',data:rg.map(r=>r.total_complaints),backgroundColor:'#0d6efd'}]},options:{plugins:{legend:{display:false}}}}));
+  const sv = run("SELECT s.level, COUNT(hp.prediction_id) c FROM HeatwaveSeverity s LEFT JOIN HeatwavePrediction hp ON hp.severity_id=s.severity_id GROUP BY s.level, s.rank ORDER BY s.rank");
+  charts.push(new Chart(ch3,{type:'bar',data:{labels:sv.map(r=>r.level),datasets:[{label:'Predictions',data:sv.map(r=>r.c),backgroundColor:sv.map(r=>SEV[r.level]||'#999')}]},options:{plugins:{legend:{display:false}}}}));
+  const tr = run("SELECT date(predicted_at) d, COUNT(*) c FROM HeatwavePrediction GROUP BY date(predicted_at) ORDER BY d");
+  charts.push(new Chart(ch4,{type:'line',data:{labels:tr.map(r=>r.d),datasets:[{label:'Predictions',data:tr.map(r=>r.c),borderColor:'#dc3545',backgroundColor:'rgba(220,53,69,.15)',fill:true,tension:.3}]}}));
+}
+
+VIEWS.dbadmin = function() {
+  const tables = ["User","Region","HeatwaveSeverity","GovernmentDepartment","Citizen","Officer","Administrator","WeatherStation","WeatherObservation","HeatwavePrediction","Advisory","WarningAlert","Complaint","Notification"];
+  app(`<h3 class="mb-1">Database Administration</h3>
+    <p class="text-muted small">Table row counts and CSV export (basic backup feature).</p>
+    <div class="card"><div class="card-body"><table class="table table-hover align-middle"><thead><tr><th>Table</th><th>Row count</th><th>Export</th></tr></thead><tbody>
+    ${tables.map(t=>`<tr><td><code>${t}</code></td><td>${one("SELECT COUNT(*) c FROM "+t).c}</td><td><button class="btn btn-sm btn-outline-success" onclick="exportCSV('${t}')">Download CSV</button></td></tr>`).join('')}
+    </tbody></table></div></div>`);
+};
+function exportCSV(table) {
+  const rows = run("SELECT * FROM "+table);
+  let cols = rows.length ? Object.keys(rows[0]) : (run("PRAGMA table_info("+table+")").map(c=>c.name));
+  const csv = [cols.join(',')].concat(rows.map(r=>cols.map(c=>{
+    let v = r[c]==null?'':String(r[c]); if (/[",\n]/.test(v)) v='"'+v.replace(/"/g,'""')+'"'; return v;
+  }).join(','))).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = table+'.csv'; a.click();
+}
+
+VIEWS.sql = function() {
+  app(`<h3 class="mb-1">SQL Console</h3>
+    <p class="text-muted small">Run any SQL against the in-browser SQLite database — great for demonstrating the schema, the view, and the trigger live in your viva. (e.g. <code>SELECT * FROM v_region_complaint_summary;</code>)</p>
+    <div class="card mb-3"><div class="card-body">
+      <textarea id="sqlbox" class="form-control font-monospace" rows="4">SELECT * FROM v_region_complaint_summary;</textarea>
+      <div class="mt-2 d-flex gap-2 flex-wrap">
+        <button class="btn btn-sm btn-primary" onclick="runSQL()">Run</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="sqlSample('SELECT name FROM sqlite_master WHERE type=\\'trigger\\';')">Show triggers</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="sqlSample('SELECT * FROM WarningAlert;')">Warning alerts (trigger output)</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="sqlSample('SELECT sql FROM sqlite_master WHERE type=\\'view\\';')">View definition</button>
+      </div>
+    </div></div>
+    <div id="sqlresult"></div>`);
+};
+function sqlSample(q){ document.getElementById('sqlbox').value = q; runSQL(); }
+function runSQL() {
+  const q = document.getElementById('sqlbox').value;
+  const out = document.getElementById('sqlresult');
+  try {
+    const res = db.exec(q);
+    if (!res.length) { out.innerHTML = `<div class="alert alert-success">Statement executed. No rows returned.</div>`; if(/insert|update|delete|create|drop/i.test(q)) {} return; }
+    const {columns, values} = res[0];
+    out.innerHTML = `<div class="card"><div class="card-body"><div class="table-responsive"><table class="table table-sm"><thead><tr>${columns.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${values.map(row=>`<tr>${row.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div><p class="small text-muted mb-0">${values.length} row(s).</p></div></div>`;
+  } catch(e) {
+    out.innerHTML = `<div class="alert alert-danger">${esc(e.message)}</div>`;
+  }
+}
+
+// ---- Small UI helpers ----
+function statCard(n,label,cls=''){ return `<div class="col-6 col-md-3"><div class="card text-center"><div class="card-body"><div class="display-6 ${cls}">${n}</div><div class="text-muted">${label}</div></div></div></div>`; }
+function statusBadge(s){ return s==='Open'?'<span class="badge bg-secondary">Open</span>':s==='In Progress'?'<span class="badge bg-warning text-dark">In Progress</span>':'<span class="badge bg-success">Resolved</span>'; }
+function summaryCard(summary,short){ return `<div class="card"><div class="card-body"><h5>Region-wise complaint summary <span class="small text-muted">(SQL view)</span></h5>
+  <table class="table table-sm"><thead><tr><th>Region</th><th>Total</th><th>Open</th><th>${short?'In Prog.':'In Progress'}</th><th>Resolved</th></tr></thead><tbody>
+  ${summary.map(s=>`<tr><td>${esc(s.region_name)}</td><td>${s.total_complaints}</td><td>${s.open_complaints}</td><td>${s.in_progress_complaints}</td><td>${s.resolved_complaints}</td></tr>`).join('')}
+  </tbody></table></div></div>`; }
+function regionRisk(){ return run(`SELECT r.region_id, r.name AS region_name, COALESCE(s.level,'No data') AS level, COALESCE(s.rank,0) AS rank, hp.temperature
+  FROM Region r LEFT JOIN (SELECT hp.* FROM HeatwavePrediction hp JOIN (SELECT region_id, MAX(predicted_at) mx FROM HeatwavePrediction GROUP BY region_id) l ON l.region_id=hp.region_id AND l.mx=hp.predicted_at) hp ON hp.region_id=r.region_id
+  LEFT JOIN HeatwaveSeverity s ON s.severity_id=hp.severity_id ORDER BY rank DESC, r.name`); }
+
+// ---- Boot ----
+initSqlJs({ locateFile: f => "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/"+f })
+  .then(SQL => {
+    db = new SQL.Database();
+    db.run("PRAGMA foreign_keys = ON;");
+    db.run(document.getElementById('schema-sql').textContent);
+    seed();
+    document.getElementById('loading').style.display = 'none';
+    loginScreen();
+  })
+  .catch(err => {
+    document.getElementById('loading').innerHTML = '<div class="text-danger p-4">Failed to load database engine.<br>'+esc(err.message)+'<br>Check your internet connection (sql.js loads from a CDN).</div>';
+  });
+</script>
+</body>
+</html>

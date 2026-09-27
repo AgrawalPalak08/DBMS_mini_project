@@ -4,6 +4,12 @@ A DBMS mini-project: a centralized system for weather monitoring, **rule-based**
 heatwave severity prediction, citizen complaints, automatic warning alerts, and
 government response tracking.
 
+> **🔴 Live demo (runs in your browser):** https://agrawalpalak08.github.io/DBMS_mini_project/
+> The live demo is a client-side build that runs **real SQLite in the browser** (via sql.js) —
+> including the actual schema, trigger, and view — so you can click through the whole project
+> with no install. The **Flask backend version** in this repo is the full server-based
+> implementation for the lab (run it with the steps below).
+
 - **Backend:** Python (Flask)
 - **Database:** SQLite (single file `heatwave.db`)
 - **Frontend:** Server-rendered Jinja2 templates + Bootstrap 5
